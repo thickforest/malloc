@@ -2735,8 +2735,8 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
   check_malloc_state (av);
 
   /* finally, do the allocation */
-  p = av->top;
-  size = chunksize (p);
+  p = av->top;  // 555555756000-555555777000 rw-p 00000000 00:00 0                          [heap]
+  size = chunksize (p); // 132K
 
   /* check that one of the above allocation paths succeeded */
   if ((unsigned long) (size) >= (unsigned long) (nb + MINSIZE))
@@ -3402,7 +3402,7 @@ _int_malloc (mstate av, size_t bytes)
      can try it without checking, which saves some time on this fast path.
    */
 
-  if ((unsigned long) (nb) <= (unsigned long) (get_max_fast ()))
+  if ((unsigned long) (nb) <= (unsigned long) (get_max_fast ())) // 首次malloc，get_max_fast() 返回0
     {
       idx = fastbin_index (nb);
       mfastbinptr *fb = &fastbin (av, idx);
@@ -3439,7 +3439,7 @@ _int_malloc (mstate av, size_t bytes)
      anyway, so we can check now, which is faster.)
    */
 
-  if (in_smallbin_range (nb))
+  if (in_smallbin_range (nb))   // 是否小于1024
     {
       idx = smallbin_index (nb);
       bin = bin_at (av, idx);
@@ -3862,7 +3862,7 @@ _int_malloc (mstate av, size_t bytes)
        */
       else
         {
-          void *p = sysmalloc (nb, av);
+          void *p = sysmalloc (nb, av); // 第一次malloc到这里
           if (p != NULL)
             alloc_perturb (p, bytes);
           return p;
