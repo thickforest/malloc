@@ -3384,7 +3384,7 @@ _int_malloc (mstate av, size_t bytes)
      aligned.
    */
 
-  checked_request2size (bytes, nb);
+  checked_request2size (bytes, nb); // nb = bytes + 16(双字节)
 
   /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
      mmap.  */
@@ -3414,7 +3414,7 @@ _int_malloc (mstate av, size_t bytes)
             break;
         }
       while ((pp = catomic_compare_and_exchange_val_acq (fb, victim->fd, victim))
-             != victim);
+             != victim); // 原子操作, if(*fb == victim) *fb=victim->fd; return victim
       if (victim != 0)
         {
           if (__builtin_expect (fastbin_index (chunksize (victim)) != idx, 0))
@@ -3980,9 +3980,9 @@ _int_free (mstate av, mchunkptr p, int have_lock)
 	   deallocated.  See use of OLD_IDX below for the actual check.  */
 	if (have_lock && old != NULL)
 	  old_idx = fastbin_index(chunksize(old));
-	p->fd = old2 = old;
+	p->fd = old2 = old; // p是本次要free的chunk; old是av->fastbinY[idx]
       }
-    while ((old = catomic_compare_and_exchange_val_rel (fb, p, old2)) != old2);
+    while ((old = catomic_compare_and_exchange_val_rel (fb, p, old2)) != old2); // 原子操作, if(*fb == old2) *fb=p; return old2
 
     if (have_lock && old != NULL && __builtin_expect (old_idx != idx, 0))
       {
@@ -3992,7 +3992,7 @@ _int_free (mstate av, mchunkptr p, int have_lock)
   }
 
   /*
-    Consolidate other non-mmapped chunks as they arrive.
+    Consolidate(合并) other non-mmapped chunks as they arrive.
   */
 
   else if (!chunk_is_mmapped(p)) {
