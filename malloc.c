@@ -335,7 +335,7 @@ __malloc_assert (const char *assertion, const char *file, unsigned int line,
 */
 
 #ifndef INTERNAL_SIZE_T
-#define INTERNAL_SIZE_T size_t
+#define INTERNAL_SIZE_T size_t // size_t是标准C库中定义的，应为unsigned int，在64位系统中为 long unsigned int。
 #endif
 
 /* The corresponding word size */
@@ -2390,7 +2390,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
   /* Record incoming configuration of top */
 
   old_top = av->top;
-  old_size = chunksize (old_top);
+  old_size = chunksize (old_top);   // 初次malloc时为0
   old_end = (char *) (chunk_at_offset (old_top, old_size));
 
   brk = snd_brk = (char *) (MORECORE_FAILURE);
@@ -2462,7 +2462,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
 
 
     { /* Request enough space for nb + pad + overhead */
-      size = nb + mp_.top_pad + MINSIZE;
+      size = nb + mp_.top_pad + MINSIZE;    // mp_top_pad = 131072; MINSIZE = 32
 
       /*
          If contiguous, we can subtract out existing space that we hope to
@@ -2470,7 +2470,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
          we don't actually get contiguous space.
        */
 
-      if (contiguous (av))
+      if (contiguous (av))  // if (av->flags & 2) == 0
         size -= old_size;
 
       /*
@@ -2481,7 +2481,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
          previous calls. Otherwise, we correct to page-align below.
        */
 
-      size = ALIGN_UP (size, pagesize);
+      size = ALIGN_UP (size, pagesize); // 扩展到4096的整数倍
 
       /*
          Don't try to call MORECORE if argument is so big as to appear
@@ -2491,7 +2491,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
 
       if (size > 0)
         {
-          brk = (char *) (MORECORE (size));
+          brk = (char *) (MORECORE (size)); // 调用sbrk, 0x555555756000     0x555555777000 rw-p    21000 0      [heap] 终于出现
           LIBC_PROBE (memory_sbrk_more, 2, brk, size);
         }
 
@@ -2546,8 +2546,8 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
       if (brk != (char *) (MORECORE_FAILURE))
         {
           if (mp_.sbrk_base == 0)
-            mp_.sbrk_base = brk;
-          av->system_mem += size;
+            mp_.sbrk_base = brk;    // 首次malloc之前 mp_.sbrk_base = 0
+          av->system_mem += size;   // 首次malloc之前 av->system_mem = 0
 
           /*
              If MORECORE extends previous space, we can likewise extend top size.
@@ -2583,7 +2583,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
            */
 
           else
-            {
+            {   // 首次malloc走这里
               front_misalign = 0;
               end_misalign = 0;
               correction = 0;
