@@ -1212,7 +1212,7 @@ nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 #define mem2chunk(mem) ((mchunkptr)((char*)(mem) - 2*SIZE_SZ))
 
 /* The smallest possible chunk */
-#define MIN_CHUNK_SIZE        (offsetof(struct malloc_chunk, fd_nextsize))
+#define MIN_CHUNK_SIZE        (offsetof(struct malloc_chunk, fd_nextsize))  // 32
 
 /* The smallest size we can malloc is an aligned minimal chunk */
 
@@ -1464,7 +1464,7 @@ typedef struct malloc_chunk *mbinptr;
 
 #define NBINS             128
 #define NSMALLBINS         64
-#define SMALLBIN_WIDTH    MALLOC_ALIGNMENT
+#define SMALLBIN_WIDTH    MALLOC_ALIGNMENT  // 2*SIZE_SZ == 16
 #define SMALLBIN_CORRECTION (MALLOC_ALIGNMENT > 2 * SIZE_SZ)
 #define MIN_LARGE_SIZE    ((NSMALLBINS - SMALLBIN_CORRECTION) * SMALLBIN_WIDTH)
 
@@ -1562,8 +1562,8 @@ typedef struct malloc_chunk *mbinptr;
 
 /* Conservatively use 32 bits per map word, even if on 64bit system */
 #define BINMAPSHIFT      5
-#define BITSPERMAP       (1U << BINMAPSHIFT)
-#define BINMAPSIZE       (NBINS / BITSPERMAP)
+#define BITSPERMAP       (1U << BINMAPSHIFT)    // 32
+#define BINMAPSIZE       (NBINS / BITSPERMAP)   // 4
 
 #define idx2block(i)     ((i) >> BINMAPSHIFT)
 #define idx2bit(i)       ((1U << ((i) & ((1U << BINMAPSHIFT) - 1))))
@@ -3353,7 +3353,7 @@ __libc_calloc (size_t n, size_t elem_size)
  */
 
 static void *
-_int_malloc (mstate av, size_t bytes)
+_int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins中找  bytes in (120:1000]区间的在smallbins中找
 {
   INTERNAL_SIZE_T nb;               /* normalized request size */
   unsigned int idx;                 /* associated bin index */
@@ -3384,11 +3384,11 @@ _int_malloc (mstate av, size_t bytes)
      aligned.
    */
 
-  checked_request2size (bytes, nb); // nb = bytes + 16(双字节)
+  checked_request2size (bytes, nb); // nb = (bytes + 8 + 15) & (~15)
 
   /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
      mmap.  */
-  if (__glibc_unlikely (av == NULL))
+  if (__glibc_unlikely (av == NULL))    // 首次malloc时,av居然已经初始化了
     {
       void *p = sysmalloc (nb, av);
       if (p != NULL)
@@ -3402,8 +3402,8 @@ _int_malloc (mstate av, size_t bytes)
      can try it without checking, which saves some time on this fast path.
    */
 
-  if ((unsigned long) (nb) <= (unsigned long) (get_max_fast ())) // 首次malloc，get_max_fast() 返回0
-    {
+  if ((unsigned long) (nb) <= (unsigned long) (get_max_fast ())) // 首次malloc，get_max_fast() 返回0, 之后在malloc_consolidate中set_max_fast(128)
+    { // 对应的bytes<=120
       idx = fastbin_index (nb);
       mfastbinptr *fb = &fastbin (av, idx);
       mchunkptr pp = *fb;
@@ -3439,9 +3439,9 @@ _int_malloc (mstate av, size_t bytes)
      anyway, so we can check now, which is faster.)
    */
 
-  if (in_smallbin_range (nb))   // 是否小于1024
+  if (in_smallbin_range (nb))   // 是否小于1024,对应的bytes<=1000
     {
-      idx = smallbin_index (nb);
+      idx = smallbin_index (nb);// idx = nb >> 4;
       bin = bin_at (av, idx);
 
       if ((victim = last (bin)) != bin)
@@ -3504,7 +3504,7 @@ _int_malloc (mstate av, size_t bytes)
   for (;; )
     {
       int iters = 0;
-      while ((victim = unsorted_chunks (av)->bk) != unsorted_chunks (av))
+      while ((victim = unsorted_chunks (av)->bk) != unsorted_chunks (av))   // 第一次malloc时,此while条件不满足
         {
           bck = victim->bk;
           if (__builtin_expect (victim->size <= 2 * SIZE_SZ, 0)
@@ -3713,9 +3713,9 @@ _int_malloc (mstate av, size_t bytes)
 
       ++idx;
       bin = bin_at (av, idx);
-      block = idx2block (idx);
+      block = idx2block (idx);  // block = idx>>5
       map = av->binmap[block];
-      bit = idx2bit (idx);
+      bit = idx2bit (idx);  // bit = 1<<(idx&31)
 
       for (;; )
         {
@@ -3736,7 +3736,7 @@ _int_malloc (mstate av, size_t bytes)
           /* Advance to bin with set bit. There must be one. */
           while ((bit & map) == 0)
             {
-              bin = next_bin (bin);
+              bin = next_bin (bin); // bin+=2字节
               bit <<= 1;
               assert (bit != 0);
             }
@@ -3765,7 +3765,7 @@ _int_malloc (mstate av, size_t bytes)
               unlink (av, victim, bck, fwd);
 
               /* Exhaust */
-              if (remainder_size < MINSIZE)
+              if (remainder_size < MINSIZE) // MINSIZE = 32
                 {
                   set_inuse_bit_at_offset (victim, size);
                   if (av != &main_arena)
@@ -4088,7 +4088,7 @@ _int_free (mstate av, mchunkptr p, int have_lock)
       consolidate into top
     */
 
-    else {
+    else {  // nextchunk == av->top 这种情况合并入top_chunk
       size += nextsize;
       set_head(p, size | PREV_INUSE);
       av->top = p;
@@ -4108,15 +4108,15 @@ _int_free (mstate av, mchunkptr p, int have_lock)
       is reached.
     */
 
-    if ((unsigned long)(size) >= FASTBIN_CONSOLIDATION_THRESHOLD) {
+    if ((unsigned long)(size) >= FASTBIN_CONSOLIDATION_THRESHOLD) { // >= 65536UL
       if (have_fastchunks(av))
-	malloc_consolidate(av);
+	malloc_consolidate(av); // 将fastbins也合并,或者放到unsortedbin,或者放回fastbins[细节没看懂]
 
       if (av == &main_arena) {
 #ifndef MORECORE_CANNOT_TRIM
 	if ((unsigned long)(chunksize(av->top)) >=
 	    (unsigned long)(mp_.trim_threshold))
-	  systrim(mp_.top_pad, av);
+	  systrim(mp_.top_pad, av); // 调用sbrk将高地址内存归还系统
 #endif
       } else {
 	/* Always try heap_trim(), even if the top chunk is not
