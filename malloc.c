@@ -3384,7 +3384,7 @@ _int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins�
      aligned.
    */
 
-  checked_request2size (bytes, nb); // nb = (bytes + 8 + 15) & (~15)
+  checked_request2size (bytes, nb); // nb = (bytes + 8 + 15) & (~15) 并且最小为MINSIZE(32)
 
   /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
      mmap.  */
@@ -3444,7 +3444,7 @@ _int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins�
       idx = smallbin_index (nb);// idx = nb >> 4;
       bin = bin_at (av, idx);
 
-      if ((victim = last (bin)) != bin)
+      if ((victim = last (bin)) != bin) // FIFO(先入先出):从bin->bk申请(@3626行)
         {
           if (victim == 0) /* initialization check */
             malloc_consolidate (av);
@@ -3500,7 +3500,7 @@ _int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins�
      do so and retry. This happens at most once, and only when we would
      otherwise need to expand memory to service a "small" request.
    */
-
+  // 处理最近free的chunks;唯一将chunks放入bins的地方
   for (;; )
     {
       int iters = 0;
@@ -3548,11 +3548,11 @@ _int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins�
               alloc_perturb (p, bytes);
               return p;
             }
-
-          /* remove from unsorted list */
-          unsorted_chunks (av)->bk = bck;
-          bck->fd = unsorted_chunks (av);
-
+                                              // unsortedbin         bck       victim
+          /* remove from unsorted list */     //     V---------------------------|
+          unsorted_chunks (av)->bk = bck;     //     fd        ->    fd    ->    fd
+          bck->fd = unsorted_chunks (av);     //     bk        <-    bk    <-    bk
+                                              //     |___________________________^
           /* Take now instead of binning if exact fit */
 
           if (size == nb)
@@ -3621,12 +3621,12 @@ _int_malloc (mstate av, size_t bytes)   // bytes in (0:120]区间的在fastbins�
               else
                 victim->fd_nextsize = victim->bk_nextsize = victim;
             }
-
-          mark_bin (av, victim_index);
-          victim->bk = bck;
-          victim->fd = fwd;
-          fwd->bk = victim;
-          bck->fd = victim;
+          // FIFO(先入先出):将victim放入bck,fwd之间(@3447行)
+          mark_bin (av, victim_index); // smallbin(bck)     victim       fwd
+          victim->bk = bck;            //     V---------------------------|
+          victim->fd = fwd;            //     fd        ->    fd    ->    fd
+          fwd->bk = victim;            //     bk        <-    bk    <-    bk
+          bck->fd = victim;            //     |___________________________^
 
 #define MAX_ITERS       10000
           if (++iters >= MAX_ITERS)
